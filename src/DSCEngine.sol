@@ -32,6 +32,12 @@ contract DSCEngine is ReentrancyGuard {
         address indexed token,
         uint256 indexed amount
     );
+    event CollateralRedeemed(
+        address indexed user,
+        address indexed token,
+        uint256 indexed amount
+    );
+    event BurnDSC(address indexed user, uint256 indexed amount);
 
     /*
       @title DSCEngine
@@ -86,7 +92,7 @@ contract DSCEngine is ReentrancyGuard {
         address tokenCollateralAddress,
         uint256 amountCollateral
     )
-        external
+        public
         moreThanZero(amountCollateral)
         isAllowedToken(tokenCollateralAddress)
         nonReentrant
@@ -115,7 +121,7 @@ contract DSCEngine is ReentrancyGuard {
      @notice They must have more collateral than they have minted token
     */
 
-    function mintDsc(uint256 amount) external moreThanZero(amount) {
+    function mintDsc(uint256 amount) public moreThanZero(amount) {
         s_dscMinted[msg.sender] += amount;
 
         _revertIfHealthFactorIsBroken(msg.sender);
@@ -123,6 +129,70 @@ contract DSCEngine is ReentrancyGuard {
         if (!success) {
             revert DSCEngine__MintingFails();
         }
+    }
+
+    function depositeCollateralAndMintDSC(
+        address tokenCollateralAddress,
+        uint256 amountCollateral,
+        uint256 amountDSCToMint
+    ) external {
+        depositeCollateral(tokenCollateralAddress, amountCollateral);
+        mintDsc(amountDSCToMint);
+    }
+
+    function redeemCollateral(
+        address tokenCollateralAddress,
+        uint256 amountCollateral
+    )
+        public
+        moreThanZero(amountCollateral)
+        isAllowedToken(tokenCollateralAddress)
+    {
+        s_collateralDeposited[msg.sender][
+            tokenCollateralAddress
+        ] -= amountCollateral;
+
+        emit CollateralRedeemed(
+            msg.sender,
+            tokenCollateralAddress,
+            amountCollateral
+        );
+
+        bool success = IERC20(tokenCollateralAddress).transfer(
+            msg.sender,
+            amountCollateral
+        );
+        if (!success) {
+            revert DSCEngine__TransferFails();
+        }
+        _revertIfHealthFactorIsBroken(msg.sender);
+    }
+
+    function burnDSC(
+        uint256 amountDSCToBurn
+    ) public moreThanZero(amountDSCToBurn) {
+        s_dscMinted[msg.sender] -= amountDSCToBurn;
+        emit BurnDSC(msg.sender, amountDSCToBurn);
+
+        _revertIfHealthFactorIsBroken(msg.sender);
+        bool success = i_dsc.transferFrom(
+            msg.sender,
+            address(this),
+            amountDSCToBurn
+        );
+        if (!success) {
+            revert DSCEngine__TransferFails();
+        }
+        i_dsc.burn(amountDSCToBurn);
+    }
+
+    function redeemCollateralAndBurnDSC(
+        address tokenCollateralAddress,
+        uint256 amountCollateral,
+        uint256 amountDSCToBurn
+    ) external {
+        burnDSC(amountDSCToBurn);
+        redeemCollateral(tokenCollateralAddress, amountCollateral);
     }
 
     // Internal Functions
