@@ -61,14 +61,14 @@ contract DSCEngine is ReentrancyGuard {
     }
 
     modifier moreThanZero(uint256 amount) {
-        if (amount <= 0) {
+        if (amount == 0) {
             revert DSCEngine__NeedsMoreThanZero();
         }
         _;
     }
 
     modifier isAllowedToken(address token) {
-        if (s_priceFeed[token] != address(0)) {
+        if (s_priceFeed[token] == address(0)) {
             revert DSCEngine__NotAllowedToken();
         }
         _;
@@ -240,5 +240,32 @@ contract DSCEngine is ReentrancyGuard {
             totalCollateralValueInUsd += getUsdValue(token, amount);
         }
         return totalCollateralValueInUsd;
+    }
+
+    // Getter functions
+
+    function returnPriceFeedAddress(address tokenCollateralAddress) external view returns (address) {
+        return s_priceFeed[tokenCollateralAddress];
+    }
+
+    function returnTokenCollateralAddress(uint256 index) external view returns (address) {
+        return s_collateralTokens[index];
+    }
+
+    function returnDepositedCollateral(address tokenCollateralAddress) external view returns (uint256) {
+        return s_collateralDeposited[msg.sender][tokenCollateralAddress];
+    }
+
+    function returnGetUsdValue(address token, uint256 amount) external view returns (uint256) {
+        return getUsdValue(token, amount);
+    }
+
+    function returnGetAccountInformation(address user) external view returns (uint256, uint256) {
+        (uint256 totalDscMinted, uint256 totalCollateralValueInUsd) = _getAccountInformation(user);
+        return (totalDscMinted, totalCollateralValueInUsd);
+    }
+
+    function returnHealthFactor(address user) external view returns (uint256) {
+        return _healthFactor(user);
     }
 }
