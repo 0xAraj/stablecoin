@@ -25,6 +25,7 @@ contract DSCEngineTest is Test {
     uint256 public constant STARTING_USER_BALANCE = 20 ether;
 
     event CollateralDeposited(address indexed user, address indexed token, uint256 indexed amount);
+    event CollateralRedeemed(address indexed from, address indexed to, address indexed token, uint256 amount);
 
     function setUp() public {
         DeployDSC deployDSC = new DeployDSC();
@@ -45,13 +46,15 @@ contract DSCEngineTest is Test {
         new DSCEngine(tokenAddress, priceFeedAddress,address(dsc));
     }
 
-    function testConstructorIsSettingAddressesToMapping() public {
+    function testConstructorIsSettingAddressesToMappingAndDSCAddress() public {
         tokenAddress.push(weth);
         tokenAddress.push(wbtc);
         priceFeedAddress.push(wethUsdPriceFeed);
         priceFeedAddress.push(wbtcUsdPriceFeed);
+        address epectedDSCAddress = address(dsc);
 
         DSCEngine newEngine = new DSCEngine(tokenAddress, priceFeedAddress, address(dsc));
+        DecentralizedStableCoin newDSC = newEngine.returnDSCAddress();
         for (uint256 i = 0; i < tokenAddress.length; i++) {
             address token = newEngine.returnTokenCollateralAddress(i);
             address priceFeed = newEngine.returnPriceFeedAddress(token);
@@ -59,6 +62,7 @@ contract DSCEngineTest is Test {
             assert(token == tokenAddress[i]);
             assert(priceFeed == priceFeedAddress[i]);
         }
+        assert(epectedDSCAddress == address(newDSC));
     }
 
     // Deposite collateral
@@ -75,7 +79,7 @@ contract DSCEngineTest is Test {
     }
 
     function testRevertIfCollateralAddressIsNotValid() public {
-        uint256 depositeAmount = 1 ether;
+        uint256 depositeAmount = 5 ether;
         uint256 approvedAmount = 10 ether;
         vm.startPrank(USER);
         ERC20Mock randomToken = new ERC20Mock();
@@ -88,7 +92,7 @@ contract DSCEngineTest is Test {
     }
 
     function testShouldDepositeCollateralAndUpdateData() public {
-        uint256 depositeAmount = 2 ether;
+        uint256 depositeAmount = 5 ether;
         uint256 approvedAmount = 10 ether;
         uint256 startingWethBalanceOfDscEngine = ERC20Mock(weth).balanceOf(address(dscEngine));
         vm.startPrank(USER);
@@ -102,11 +106,11 @@ contract DSCEngineTest is Test {
     }
 
     function testDepositeCollaterealShouldEmitEvent() public {
-        uint256 depositeAmount = 2 ether;
+        uint256 depositeAmount = 5 ether;
         uint256 approvedAmount = 10 ether;
         vm.startPrank(USER);
-
         ERC20Mock(weth).approve(address(dscEngine), approvedAmount);
+
         vm.expectEmit(address(dscEngine));
         emit CollateralDeposited(USER, weth, depositeAmount);
         dscEngine.depositeCollateral(weth, depositeAmount);
@@ -140,7 +144,7 @@ contract DSCEngineTest is Test {
         assert(actualTotalCollateralValue == expectedTotalCollateralValue);
     }
 
-    function testGetAccountInformation() public {
+    function testHealthFactorWhenMintedDscIsZero() public {
         uint256 ethDepositeAmount = 2 ether;
         uint256 btcDepositedAmount = 4 ether;
         uint256 approvedAmount = 10 ether;
@@ -150,26 +154,130 @@ contract DSCEngineTest is Test {
         dscEngine.depositeCollateral(weth, ethDepositeAmount);
         dscEngine.depositeCollateral(wbtc, btcDepositedAmount);
 
-        uint256 ethValue = ethDepositeAmount * 2000;
-        uint256 btcValue = btcDepositedAmount * 1000;
-        uint256 expectedTotalCollateralValue = ethValue + btcValue;
-        uint256 expectedDscMinted = 0;
-        (uint256 actualDscMinted, uint256 actualTotalCollateralValue) = dscEngine.returnGetAccountInformation(USER);
-        assert(actualTotalCollateralValue == expectedTotalCollateralValue);
-        assert(actualDscMinted == expectedDscMinted);
+        uint256 expectedHealthFactor = 115792089237316195423570985008687907853269984665640564039457584007913129639935;
+        uint256 actualHealthFactor = dscEngine.returnHealthFactor(USER);
+
+        assert(expectedHealthFactor == actualHealthFactor);
     }
 
-    // function testHealthFactor() public {
+    function testMintDscWhenDscMintedIsZeroInitially() public {
+        uint256 ethDepositeAmount = 2 ether;
+        uint256 btcDepositedAmount = 4 ether;
+        uint256 approvedAmount = 10 ether;
+        vm.startPrank(USER);
+        ERC20Mock(weth).approve(address(dscEngine), approvedAmount);
+        ERC20Mock(wbtc).approve(address(dscEngine), approvedAmount);
+        dscEngine.depositeCollateral(weth, ethDepositeAmount);
+        dscEngine.depositeCollateral(wbtc, btcDepositedAmount);
+
+        uint256 amount = 5 ether;
+        dscEngine.mintDsc(amount);
+        uint256 actualMintDsc = dsc.balanceOf(USER);
+        uint256 mintDscBalanceInMapping = dscEngine.returnMintedDsc(USER);
+        assert(actualMintDsc == amount);
+        assert(mintDscBalanceInMapping == amount);
+    }
+
+    function testRevertMintDscWhenUserMintMoreThanLimitWhenMintedDscIsZeroInitially() public {
+        uint256 ethDepositeAmount = 2 ether;
+        uint256 btcDepositedAmount = 4 ether;
+        uint256 approvedAmount = 10 ether;
+        vm.startPrank(USER);
+        ERC20Mock(weth).approve(address(dscEngine), approvedAmount);
+        ERC20Mock(wbtc).approve(address(dscEngine), approvedAmount);
+        dscEngine.depositeCollateral(weth, ethDepositeAmount);
+        dscEngine.depositeCollateral(wbtc, btcDepositedAmount);
+
+        uint256 amount = 5000 ether;
+        vm.expectRevert(DSCEngine.DSCEngine__HealthFactorIsBroken.selector);
+        dscEngine.mintDsc(amount);
+    }
+
+    // function testDepositeCollateralAndMintDsc() public {
     //     uint256 ethDepositeAmount = 2 ether;
-    //     uint256 btcDepositedAmount = 4 ether;
     //     uint256 approvedAmount = 10 ether;
+    //     uint256 startingWethBalanceOfDscEngine = ERC20Mock(weth).balanceOf(address(dscEngine));
     //     vm.startPrank(USER);
     //     ERC20Mock(weth).approve(address(dscEngine), approvedAmount);
-    //     ERC20Mock(wbtc).approve(address(dscEngine), approvedAmount);
-    //     dscEngine.depositeCollateral(weth, ethDepositeAmount);
-    //     dscEngine.depositeCollateral(wbtc, btcDepositedAmount);
+    //     uint256 amountToMint = 2 ether;
 
-    //       uint256 healthFactor = dscEngine.returnHealthFactor(USER);
-    //      console.log(healthFactor);
+    //     dscEngine.depositeCollateralAndMintDSC(weth, ethDepositeAmount, amountToMint);
+    //     uint256 actualMintDsc = dsc.balanceOf(USER);
+    //     console.log(actualMintDsc);
+    //     uint256 mintDscBalanceInMapping = dscEngine.returnMintedDsc(USER);
+    //     uint256 actualDepositedAmount = dscEngine.returnDepositedCollateral(weth);
+    //     uint256 finalWethBalanceOfDscEngine = ERC20Mock(weth).balanceOf(address(dscEngine));
+    //     assert(ethDepositeAmount == actualDepositedAmount);
+    //     assert(finalWethBalanceOfDscEngine == startingWethBalanceOfDscEngine + ethDepositeAmount);
+    //     assert(actualMintDsc == amountToMint);
+    //     assert(mintDscBalanceInMapping == amountToMint);
     // }
+
+    function testRevertRedeemCollateralIfMoreThanDepositeIsWithdrawed() public {
+        uint256 depositeAmount = 2 ether;
+        uint256 approvedAmount = 10 ether;
+        vm.startPrank(USER);
+        ERC20Mock(weth).approve(address(dscEngine), approvedAmount);
+        dscEngine.depositeCollateral(weth, depositeAmount);
+
+        uint256 redeemCollateral = 3 ether;
+        vm.expectRevert(DSCEngine.DSCEngine__RedeemingMoreThanDeposite.selector);
+        dscEngine.redeemCollateral(weth, redeemCollateral);
+    }
+
+    function testShouldRedeemCollateralAndEmitEvent() public {
+        uint256 depositeAmount = 2 ether;
+        uint256 approvedAmount = 10 ether;
+        vm.startPrank(USER);
+        ERC20Mock(weth).approve(address(dscEngine), approvedAmount);
+        dscEngine.depositeCollateral(weth, depositeAmount);
+
+        uint256 redeemCollateral = 2 ether;
+        uint256 initialDepositedCollateral = dscEngine.returnDepositedCollateral(weth);
+        uint256 initialWethBalanceOfUser = ERC20Mock(weth).balanceOf(USER);
+        vm.expectEmit();
+        emit CollateralRedeemed(USER, USER, weth, redeemCollateral);
+        dscEngine.redeemCollateral(weth, redeemCollateral);
+        uint256 finalDepositeCollateral = dscEngine.returnDepositedCollateral(weth);
+        uint256 finalWethBalanceOfUser = ERC20Mock(weth).balanceOf(USER);
+        assert(finalDepositeCollateral == initialDepositedCollateral - redeemCollateral);
+        assert(finalWethBalanceOfUser == initialWethBalanceOfUser + redeemCollateral);
+    }
+
+    function testRevertRedeemCollateralIfHealthFactorIsBroken() public {
+        uint256 ethDepositeAmount = 5 ether;
+        uint256 approvedAmount = 10 ether;
+        vm.startPrank(USER);
+        ERC20Mock(weth).approve(address(dscEngine), approvedAmount);
+        uint256 amountToMint = 5000 ether;
+
+        dscEngine.depositeCollateralAndMintDSC(weth, ethDepositeAmount, amountToMint);
+
+        uint256 amountToRedeem = 1 ether;
+        vm.expectRevert(DSCEngine.DSCEngine__HealthFactorIsBroken.selector);
+        dscEngine.redeemCollateral(weth, amountToRedeem);
+    }
+
+    function testBurnDscShouldEmitEventAndTransferDscToDscEngine() public {
+        uint256 ethDepositeAmount = 5 ether;
+        uint256 approvedAmount = 10 ether;
+        vm.startPrank(USER);
+        ERC20Mock(weth).approve(address(dscEngine), approvedAmount);
+        uint256 amountToMint = 50 ether;
+
+        dscEngine.depositeCollateralAndMintDSC(weth, ethDepositeAmount, amountToMint);
+
+        uint256 amountDscToBurn = 10 ether;
+        uint256 initialDscBalanceOfUser = dsc.balanceOf(USER);
+        uint256 initialDscMintedToUser = dscEngine.returnMintedDsc(USER);
+        ERC20Mock(address(dsc)).approve(address(dscEngine), amountDscToBurn);
+
+        dscEngine.burnDSC(amountDscToBurn);
+        uint256 finalDscBalanceOfUser = dsc.balanceOf(USER);
+        uint256 finalDscBalanceOfDscEngine = dsc.balanceOf(address(dscEngine));
+        uint256 finalDscMintedToUser = dscEngine.returnMintedDsc(USER);
+        assert(finalDscBalanceOfDscEngine == 0);
+        assert(finalDscBalanceOfUser == initialDscBalanceOfUser - amountDscToBurn);
+        assert(finalDscMintedToUser == initialDscMintedToUser - amountDscToBurn);
+    }
 }
