@@ -21,6 +21,7 @@ contract DSCEngineTest is Test {
     address[] tokenAddress;
     address[] priceFeedAddress;
     address USER = makeAddr("user");
+    address LIQUIDATOR = makeAddr("liquidator");
 
     uint256 public constant STARTING_USER_BALANCE = 20 ether;
 
@@ -31,8 +32,11 @@ contract DSCEngineTest is Test {
         DeployDSC deployDSC = new DeployDSC();
         (dsc, dscEngine, helperConfig) = deployDSC.run();
         (wethUsdPriceFeed, wbtcUsdPriceFeed, weth, wbtc, deployerKey) = helperConfig.activeNetworkConfig();
+
         ERC20Mock(weth).mint(USER, STARTING_USER_BALANCE);
         ERC20Mock(wbtc).mint(USER, STARTING_USER_BALANCE);
+        ERC20Mock(weth).mint(LIQUIDATOR, STARTING_USER_BALANCE);
+        ERC20Mock(wbtc).mint(LIQUIDATOR, STARTING_USER_BALANCE);
     }
 
     // Constructor testing
@@ -279,5 +283,25 @@ contract DSCEngineTest is Test {
         assert(finalDscBalanceOfDscEngine == 0);
         assert(finalDscBalanceOfUser == initialDscBalanceOfUser - amountDscToBurn);
         assert(finalDscMintedToUser == initialDscMintedToUser - amountDscToBurn);
+    }
+
+    function testRevertLiquidateIfHealthFactorIsGood() public {
+        uint256 ethDepositeAmountOfUser = 5 ether;
+        uint256 approvedAmountOfUser = 10 ether;
+        vm.startPrank(USER);
+        ERC20Mock(weth).approve(address(dscEngine), approvedAmountOfUser);
+        uint256 amountToMintOfUser = 50 ether;
+        dscEngine.depositeCollateralAndMintDSC(weth, ethDepositeAmountOfUser, amountToMintOfUser);
+        vm.stopPrank();
+
+        uint256 ethDepositeAmountOfLiquidator = 8 ether;
+        uint256 approvedAmountOfLiquidator = 10 ether;
+        vm.startPrank(LIQUIDATOR);
+        ERC20Mock(weth).approve(address(dscEngine), approvedAmountOfLiquidator);
+        uint256 amountToMintOfLiquidator = 80 ether;
+        dscEngine.depositeCollateralAndMintDSC(weth, ethDepositeAmountOfLiquidator, amountToMintOfLiquidator);
+
+        vm.expectRevert(DSCEngine.DSCEngine__HealthFactorIsGood.selector);
+        dscEngine.liquidator(USER, weth, 20);
     }
 }
