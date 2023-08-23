@@ -275,4 +275,12 @@ contract DSCEngine is ReentrancyGuard {
     function returnDSCAddress() external view returns (DecentralizedStableCoin) {
         return i_dsc;
     }
+
+    function returnGetAccountInformation(address user)
+        external
+        view
+        returns (uint256 totalDscMinted, uint256 totalCollateralValueInUsd)
+    {
+        return _getAccountInformation(user);
+    }
 }
